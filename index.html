@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🪐 Tiny Planet</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+  #canvas { display: block; width: 100vw; height: 100vh; }
+
+  /* --- HUD --- */
+  #hud { position: fixed; top: 0; left: 0; right: 0; pointer-events: none; z-index: 10; }
+  #planet-name {
+    text-align: center; margin-top: 12px;
+    font-size: 13px; color: #aef; letter-spacing: 3px; text-transform: uppercase;
+    text-shadow: 0 0 10px #48f8;
+  }
+
+  /* --- Setup screen --- */
+  #setup {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, #0d1b3e 0%, #060912 70%);
+    z-index: 100; flex-direction: column; gap: 0;
+  }
+  .stars-bg {
+    position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+  }
+  .star {
+    position: absolute; width: 2px; height: 2px; background: #fff;
+    border-radius: 50%; animation: twinkle 3s infinite;
+  }
+  @keyframes twinkle { 0%,100%{opacity:.3} 50%{opacity:1} }
+
+  .setup-card {
+    background: rgba(10,20,50,0.85);
+    border: 1px solid #2a4a8a;
+    border-radius: 20px;
+    padding: 40px 48px;
+    width: min(400px, 90vw);
+    position: relative;
+    box-shadow: 0 0 60px #1a3a8a44, inset 0 1px 0 #4a6aaa44;
+  }
+  .setup-card h1 {
+    text-align: center; font-size: 28px; color: #e0eeff;
+    margin-bottom: 6px; font-weight: 700;
+    text-shadow: 0 0 20px #48f;
+  }
+  .setup-card .subtitle {
+    text-align: center; font-size: 12px; color: #5a8aaa; letter-spacing: 2px;
+    margin-bottom: 30px; text-transform: uppercase;
+  }
+  .field-label {
+    font-size: 11px; color: #6a9abb; letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 6px; margin-top: 16px;
+  }
+  .field-label:first-of-type { margin-top: 0; }
+  input[type=text] {
+    width: 100%; padding: 10px 14px; border-radius: 10px;
+    background: rgba(255,255,255,0.05); border: 1px solid #2a5a8a;
+    color: #d0eeff; font-size: 15px; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  input[type=text]:focus { border-color: #48aff0; box-shadow: 0 0 0 3px #48aff022; }
+  .color-row {
+    display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap;
+  }
+  .color-btn {
+    width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+    border: 3px solid transparent; transition: border-color 0.15s, transform 0.15s;
+    outline: none; flex-shrink: 0;
+  }
+  .color-btn.selected { border-color: #fff; transform: scale(1.15); }
+  .start-btn {
+    width: 100%; margin-top: 24px; padding: 13px;
+    background: linear-gradient(135deg, #2060d0, #4090ff);
+    color: #fff; font-size: 16px; font-weight: 700;
+    border: none; border-radius: 12px; cursor: pointer;
+    letter-spacing: 1px; text-transform: uppercase;
+    transition: opacity 0.2s, transform 0.1s;
+    box-shadow: 0 4px 20px #2060d066;
+  }
+  .start-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+  .start-btn:active { transform: translateY(0); }
+
+  /* --- Controls --- */
+  #controls {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: none; gap: 10px; z-index: 20; align-items: flex-end;
+  }
+  .dpad {
+    display: grid; grid-template-columns: 44px 44px 44px;
+    grid-template-rows: 44px 44px 44px; gap: 4px;
+  }
+  .dpad-btn {
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 10px; color: #fff; font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none;
+    transition: background 0.1s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .dpad-btn:active, .dpad-btn.pressed { background: rgba(255,255,255,0.3); }
+  .dpad-center { grid-column: 2; grid-row: 2; }
+  .dpad-up { grid-column: 2; grid-row: 1; }
+  .dpad-down { grid-column: 2; grid-row: 3; }
+  .dpad-left { grid-column: 1; grid-row: 2; }
+  .dpad-right { grid-column: 3; grid-row: 2; }
+
+  /* --- Chat --- */
+  #chat-panel {
+    position: fixed; right: 16px; top: 50%; transform: translateY(-50%);
+    width: min(300px, calc(100vw - 32px)); max-height: 70vh;
+    background: rgba(5,12,30,0.88);
+    border: 1px solid #1a3a6a; border-radius: 16px;
+    display: none; flex-direction: column; z-index: 20;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 40px #00000088;
+  }
+  #chat-panel.open { display: flex; }
+  .chat-header {
+    padding: 12px 16px; border-bottom: 1px solid #1a3a6a;
+    font-size: 12px; color: #6a9abb; letter-spacing: 2px;
+    text-transform: uppercase; display: flex; align-items: center; gap: 8px;
+  }
+  .alien-dot { width: 8px; height: 8px; border-radius: 50%; background: #4f0; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  #chat-msgs {
+    flex: 1; overflow-y: auto; padding: 12px; display: flex;
+    flex-direction: column; gap: 8px; min-height: 80px; max-height: 300px;
+  }
+  #chat-msgs::-webkit-scrollbar { width: 4px; }
+  #chat-msgs::-webkit-scrollbar-thumb { background: #2a5a8a; border-radius: 2px; }
+  .msg { font-size: 13px; line-height: 1.5; border-radius: 10px; padding: 8px 12px; max-width: 90%; }
+  .msg.alien { background: rgba(40,80,20,0.5); color: #aff; align-self: flex-start; border: 1px solid #2a5a2a; }
+  .msg.player { background: rgba(20,40,100,0.5); color: #ccf; align-self: flex-end; border: 1px solid #2a3a7a; }
+  .msg.loading { color: #5a8; animation: dots 1.2s infinite; }
+  @keyframes dots { 0%{opacity:.4} 50%{opacity:1} 100%{opacity:.4} }
+  .chat-input-row { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid #1a3a6a; }
+  #chat-input {
+    flex: 1; background: rgba(255,255,255,0.06); border: 1px solid #2a4a7a;
+    border-radius: 8px; padding: 8px 10px; color: #d0eeff; font-size: 13px; outline: none;
+  }
+  #chat-send {
+    background: #2060d0; border: none; border-radius: 8px; color: #fff;
+    padding: 8px 12px; cursor: pointer; font-size: 13px; font-weight: 600;
+  }
+
+  /* --- Chat toggle --- */
+  #chat-toggle {
+    position: fixed; right: 16px; bottom: 90px;
+    background: rgba(30,60,120,0.9); border: 1px solid #3060a0;
+    border-radius: 50%; width: 50px; height: 50px; font-size: 22px;
+    cursor: pointer; display: none; align-items: center; justify-content: center;
+    z-index: 20; box-shadow: 0 4px 16px #00000066;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .chat-badge {
+    position: absolute; top: 4px; right: 4px; width: 10px; height: 10px;
+    background: #f40; border-radius: 50%; display: none;
+  }
+
+  /* --- Name tag label (for 3D objects) --- */
+  #labels { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .label3d {
+    position: absolute; transform: translateX(-50%);
+    font-size: 11px; color: #fff; text-shadow: 0 1px 3px #000;
+    white-space: nowrap; pointer-events: none;
+  }
+
+  /* --- Interaction hint --- */
+  #hint {
+    position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); color: #8af; font-size: 12px;
+    padding: 6px 14px; border-radius: 20px; border: 1px solid #2a5a9a;
+    display: none; text-align: center; pointer-events: none; white-space: nowrap;
+    z-index: 20;
+  }
+
+  @media (max-width: 600px) {
+    #chat-panel { right: 0; left: 0; bottom: 0; top: auto; transform: none;
+      max-height: 60vh; width: 100%; border-radius: 16px 16px 0 0;
+      position: fixed;
+    }
+    #chat-panel.open { display: flex; }
+    #chat-toggle { right: 16px; bottom: 110px; }
+    #controls { bottom: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Setup Screen -->
+<div id="setup">
+  <div class="stars-bg" id="stars-bg"></div>
+  <div class="setup-card">
+    <h1>🪐 Tiny Planet</h1>
+    <div class="subtitle">King Kai's Neighborhood</div>
+
+    <div class="field-label">Your Name</div>
+    <input type="text" id="char-name" placeholder="Goku" maxlength="14" autocomplete="off">
+
+    <div class="field-label">Your Color</div>
+    <div class="color-row" id="color-row"></div>
+
+    <button class="start-btn" id="start-btn">Land on Planet →</button>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="planet-name">🪐 PLANET KAI-9 &nbsp;·&nbsp; <span id="step-counter">0</span> steps</div>
+</div>
+
+<!-- Labels layer -->
+<div id="labels"></div>
+
+<!-- Controls -->
+<div id="controls">
+  <div class="dpad">
+    <div></div>
+    <div class="dpad-btn dpad-up" data-dir="up">▲</div>
+    <div></div>
+    <div class="dpad-btn dpad-left" data-dir="left">◀</div>
+    <div class="dpad-btn dpad-center"></div>
+    <div class="dpad-btn dpad-right" data-dir="right">▶</div>
+    <div></div>
+    <div class="dpad-btn dpad-down" data-dir="down">▼</div>
+    <div></div>
+  </div>
+</div>
+
+<!-- Chat toggle button -->
+<button id="chat-toggle" title="Talk to the Alien">👽<div class="chat-badge" id="chat-badge"></div></button>
+
+<!-- Chat panel -->
+<div id="chat-panel">
+  <div class="chat-header"><div class="alien-dot"></div>Zyx — Planet Alien</div>
+  <div id="chat-msgs"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Say something..." maxlength="200">
+    <button id="chat-send">↑</button>
+  </div>
+</div>
+
+<!-- Proximity hint -->
+<div id="hint" id="hint">Walk near the alien to chat 👽</div>
+
+<canvas id="canvas"></canvas>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── Stars on setup screen ─────────────────────────────────────────────────
+(function(){
+  const bg = document.getElementById('stars-bg');
+  for(let i=0;i<120;i++){
+    const s=document.createElement('div');
+    s.className='star';
+    s.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*100}%;
+      animation-delay:${Math.random()*3}s;opacity:${0.2+Math.random()*0.8};
+      width:${Math.random()<0.2?3:1.5}px;height:${Math.random()<0.2?3:1.5}px`;
+    bg.appendChild(s);
+  }
+})();
+
+// ── Color picker ──────────────────────────────────────────────────────────
+const COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff9ff3','#ff9f43','#a29bfe','#00cec9','#fd79a8','#55efc4'];
+let selectedColor = COLORS[3];
+const colorRow = document.getElementById('color-row');
+COLORS.forEach(c => {
+  const btn = document.createElement('button');
+  btn.className = 'color-btn' + (c===selectedColor?' selected':'');
+  btn.style.background = c;
+  btn.onclick = () => {
+    selectedColor = c;
+    colorRow.querySelectorAll('.color-btn').forEach(b=>b.classList.remove('selected'));
+    btn.classList.add('selected');
+  };
+  colorRow.appendChild(btn);
+});
+
+// ── Setup → Game ──────────────────────────────────────────────────────────
+document.getElementById('start-btn').onclick = () => {
+  const name = document.getElementById('char-name').value.trim() || 'Traveler';
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('controls').style.display = 'flex';
+  document.getElementById('chat-toggle').style.display = 'flex';
+  startGame(name, selectedColor);
+};
+document.getElementById('char-name').addEventListener('keydown', e => {
+  if(e.key==='Enter') document.getElementById('start-btn').click();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  GAME
+// ═══════════════════════════════════════════════════════════════════════════
+function startGame(playerName, playerColor) {
+
+  const canvas = document.getElementById('canvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = false;
+  renderer.setClearColor(0x04080f);
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x04080f, 30, 80);
+
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 200);
+
+  // ── Resize ─────────────────────────────────────────────────────────────
+  function onResize(){
+    const w=window.innerWidth, h=window.innerHeight;
+    renderer.setSize(w,h);
+    camera.aspect=w/h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize',onResize);
+  onResize();
+
+  // ── Lighting ───────────────────────────────────────────────────────────
+  scene.add(new THREE.AmbientLight(0x8090c0, 0.7));
+  const sun = new THREE.DirectionalLight(0xfff0cc, 1.4);
+  sun.position.set(10,12,8);
+  scene.add(sun);
+
+  // ── Stars ──────────────────────────────────────────────────────────────
+  const starGeo = new THREE.BufferGeometry();
+  const starVerts = [];
+  for(let i=0;i<2000;i++){
+    const theta=Math.random()*Math.PI*2, phi=Math.acos(2*Math.random()-1);
+    const r=60+Math.random()*20;
+    starVerts.push(r*Math.sin(phi)*Math.cos(theta), r*Math.cos(phi), r*Math.sin(phi)*Math.sin(theta));
+  }
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts,3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color:0xffffff,size:0.18})));
+
+  // ── Planet ─────────────────────────────────────────────────────────────
+  const PLANET_R = 5;
+  const STEP_SIZE = (2 * Math.PI * PLANET_R) / 60;
+
+  // Toon gradient map
+  const gradientMap = (() => {
+    const canvas2 = document.createElement('canvas');
+    canvas2.width=4; canvas2.height=1;
+    const ctx=canvas2.getContext('2d');
+    ctx.fillStyle='#555'; ctx.fillRect(0,0,1,1);
+    ctx.fillStyle='#aaa'; ctx.fillRect(1,0,1,1);
+    ctx.fillStyle='#ddd'; ctx.fillRect(2,0,1,1);
+    ctx.fillStyle='#fff'; ctx.fillRect(3,0,1,1);
+    const t=new THREE.CanvasTexture(canvas2);
+    t.magFilter=THREE.NearestFilter; t.minFilter=THREE.NearestFilter;
+    return t;
+  })();
+
+  const planetGeo = new THREE.SphereGeometry(PLANET_R, 32, 32);
+  const planetMat = new THREE.MeshToonMaterial({
+    color: 0x4aaa55, gradientMap
+  });
+  const planet = new THREE.Mesh(planetGeo, planetMat);
+  scene.add(planet);
+
+  // Equator ring (King Kai style)
+  const ringGeo = new THREE.TorusGeometry(PLANET_R+0.05, 0.06, 8, 60);
+  const ringMat = new THREE.MeshToonMaterial({color:0x88ddff, gradientMap});
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = Math.PI/2.2;
+  scene.add(ring);
+
+  // ── Helper: place object ON planet surface ─────────────────────────────
+  function onSurface(obj, latDeg, lonDeg, heightAbove=0) {
+    const lat = latDeg * Math.PI / 180;
+    const lon = lonDeg * Math.PI / 180;
+    const r = PLANET_R + heightAbove;
+    obj.position.set(
+      r * Math.cos(lat) * Math.sin(lon),
+      r * Math.sin(lat),
+      r * Math.cos(lat) * Math.cos(lon)
+    );
+    // Face outward from center
+    const up = obj.position.clone().normalize();
+    const dummy = new THREE.Object3D();
+    dummy.position.copy(obj.position);
+    dummy.lookAt(0,0,0);
+    obj.quaternion.copy(dummy.quaternion);
+    obj.rotateX(Math.PI); // flip right-side up
+  }
+
+  // ── Trees ──────────────────────────────────────────────────────────────
+  function makeTree(lat, lon) {
+    const g = new THREE.Group();
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07,0.1,0.5,6),
+      new THREE.MeshToonMaterial({color:0x6b3a1f, gradientMap})
+    );
+    trunk.position.y = 0.25;
+    const top = new THREE.Mesh(
+      new THREE.SphereGeometry(0.35,6,6),
+      new THREE.MeshToonMaterial({color:0x2d8a3e, gradientMap})
+    );
+    top.position.y = 0.65;
+    g.add(trunk,top);
+    onSurface(g, lat, lon, 0);
+    scene.add(g);
+    return g;
+  }
+
+  const treePositions = [
+    [20,60],[40,130],[-15,200],[30,-70],[10,300],[-25,260]
+  ];
+  const trees = treePositions.map(([la,lo])=>makeTree(la,lo));
+
+  // ── Monkey ─────────────────────────────────────────────────────────────
+  function makeMonkey() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2,8,8),
+      new THREE.MeshToonMaterial({color:0xc8883a, gradientMap})
+    );
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16,8,8),
+      new THREE.MeshToonMaterial({color:0xc8883a, gradientMap})
+    );
+    head.position.y=0.32;
+    const face = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1,6,6),
+      new THREE.MeshToonMaterial({color:0xe8b870, gradientMap})
+    );
+    face.position.set(0,0.32,0.1);
+    // tail
+    const tail = new THREE.Mesh(
+      new THREE.TorusGeometry(0.15,0.03,4,10,Math.PI*1.3),
+      new THREE.MeshToonMaterial({color:0xc8883a, gradientMap})
+    );
+    tail.position.set(-0.15,0.1,0);
+    tail.rotation.z=Math.PI/4;
+    g.add(body,head,face,tail);
+    onSurface(g,-20,180,0);
+    scene.add(g);
+    return g;
+  }
+  const monkey = makeMonkey();
+  monkey.userData.basePos = {lat:-20,lon:180};
+
+  // ── Alien (Zyx) ────────────────────────────────────────────────────────
+  function makeAlien() {
+    const g = new THREE.Group();
+    const bodyGroup = new THREE.Group();
+    const bodyMid = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.15,0.3,8), new THREE.MeshToonMaterial({color:0x7aef7a,gradientMap}));
+    const bodyTop = new THREE.Mesh(new THREE.SphereGeometry(0.13,8,6), new THREE.MeshToonMaterial({color:0x7aef7a,gradientMap}));
+    bodyTop.position.y=0.15;
+    const bodyBot = new THREE.Mesh(new THREE.SphereGeometry(0.15,8,6), new THREE.MeshToonMaterial({color:0x7aef7a,gradientMap}));
+    bodyBot.position.y=-0.15;
+    bodyGroup.add(bodyMid,bodyTop,bodyBot);
+    const body = bodyGroup;
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2,8,8),
+      new THREE.MeshToonMaterial({color:0x55dd55, gradientMap})
+    );
+    head.position.y=0.42;
+    // Big eyes
+    [-0.08,0.08].forEach(x=>{
+      const eye=new THREE.Mesh(
+        new THREE.SphereGeometry(0.06,6,6),
+        new THREE.MeshToonMaterial({color:0x000000})
+      );
+      eye.position.set(x,0.44,0.17);
+      const shine=new THREE.Mesh(
+        new THREE.SphereGeometry(0.02,4,4),
+        new THREE.MeshBasicMaterial({color:0xffffff})
+      );
+      shine.position.set(x+0.02,0.46,0.22);
+      g.add(eye,shine);
+    });
+    // Antennae
+    [-0.1,0.1].forEach(x=>{
+      const ant=new THREE.Mesh(
+        new THREE.CylinderGeometry(0.01,0.01,0.25,4),
+        new THREE.MeshToonMaterial({color:0x33aa33, gradientMap})
+      );
+      ant.position.set(x,0.68,0);
+      ant.rotation.z=x*3;
+      const ball=new THREE.Mesh(
+        new THREE.SphereGeometry(0.04,4,4),
+        new THREE.MeshToonMaterial({color:0xaaff44, gradientMap})
+      );
+      ball.position.set(x*1.4,0.82,0);
+      g.add(ant,ball);
+    });
+    g.add(body,head);
+    g.userData.label = 'Zyx 👽';
+    g.userData.isAlien = true;
+    onSurface(g, 5, 0, 0);
+    scene.add(g);
+    return g;
+  }
+  const alien = makeAlien();
+  alien.userData.baseAngle = 0;
+
+  // ── Player ─────────────────────────────────────────────────────────────
+  function makeCharacter(color) {
+    const g = new THREE.Group();
+    const col = new THREE.Color(color);
+    const bodyM = new THREE.MeshToonMaterial({color:col, gradientMap});
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.15,0.4,8), bodyM);
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18,8,8),
+      new THREE.MeshToonMaterial({color:0xf5cba7, gradientMap})
+    );
+    head.position.y = 0.38;
+    // Hair
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.19,8,6),
+      new THREE.MeshToonMaterial({color:0x2c1810, gradientMap})
+    );
+    hair.position.set(0,0.42,0);
+    hair.scale.y = 0.6;
+    // Eyes
+    [-0.06,0.06].forEach(x=>{
+      const e=new THREE.Mesh(new THREE.SphereGeometry(0.04,4,4), new THREE.MeshToonMaterial({color:0x111}));
+      e.position.set(x,0.38,0.15);
+      g.add(e);
+    });
+    g.add(body,head,hair);
+    return g;
+  }
+
+  const player = makeCharacter(playerColor);
+  scene.add(player);
+
+  // Player state: angle on planet (0 = top/north pole ish, we'll use lat/lon in degrees)
+  let pLat = 0, pLon = 0;
+  let pFacing = 0; // compass angle in degrees
+  let stepCount = 0;
+
+  function placePlayer() {
+    onSurface(player, pLat, pLon, 0);
+    // Also rotate to face direction
+  }
+  placePlayer();
+
+  // ── Input ───────────────────────────────────────────────────────────────
+  const keys = {};
+  window.addEventListener('keydown', e => { keys[e.code]=true; });
+  window.addEventListener('keyup', e => { keys[e.code]=false; });
+
+  // D-pad
+  document.querySelectorAll('.dpad-btn[data-dir]').forEach(btn => {
+    const dir = btn.dataset.dir;
+    const setKey = (v) => {
+      const map = {up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'};
+      keys[map[dir]] = v;
+      btn.classList.toggle('pressed', v);
+    };
+    btn.addEventListener('touchstart', e=>{ e.preventDefault(); setKey(true); }, {passive:false});
+    btn.addEventListener('touchend', e=>{ e.preventDefault(); setKey(false); }, {passive:false});
+    btn.addEventListener('mousedown', ()=>setKey(true));
+    btn.addEventListener('mouseup', ()=>setKey(false));
+    btn.addEventListener('mouseleave', ()=>setKey(false));
+  });
+
+  // ── Movement ────────────────────────────────────────────────────────────
+  const STEP_DEG = (STEP_SIZE / (PLANET_R * Math.PI / 180));
+  let moveCD = 0;
+
+  function movePlayer() {
+    if(moveCD > 0) return;
+    let moved = false;
+    const speed = STEP_DEG;
+    if(keys['ArrowUp']||keys['KeyW']){
+      pLat = Math.max(-85, Math.min(85, pLat + speed));
+      moved=true;
+    }
+    if(keys['ArrowDown']||keys['KeyS']){
+      pLat = Math.max(-85, Math.min(85, pLat - speed));
+      moved=true;
+    }
+    if(keys['ArrowLeft']||keys['KeyA']){
+      pLon -= speed;
+      moved=true;
+    }
+    if(keys['ArrowRight']||keys['KeyD']){
+      pLon += speed;
+      moved=true;
+    }
+    if(moved){
+      stepCount++;
+      document.getElementById('step-counter').textContent = stepCount;
+      placePlayer();
+      moveCD = 0.12;
+      checkProximity();
+    }
+  }
+
+  // ── Proximity check ─────────────────────────────────────────────────────
+  const hint = document.getElementById('hint');
+  let nearAlien = false;
+
+  function angularDist(la1,lo1,la2,lo2){
+    // Simple euclidean approx for small planet
+    return Math.sqrt((la1-la2)**2+(lo1-lo2)**2);
+  }
+
+  function checkProximity(){
+    // Alien at lat=5,lon=0
+    const dist = angularDist(pLat,pLon,5,0);
+    nearAlien = dist < 20;
+    hint.style.display = nearAlien ? 'none' : 'block';
+    if(nearAlien) hint.style.display='none';
+  }
+
+  // ── Camera ──────────────────────────────────────────────────────────────
+  let camAngleH = 0.3;
+  let camAngleV = 0.5;
+  let lastTouch = null;
+  let isDragging = false;
+  let lastMouse = null;
+
+  canvas.addEventListener('mousedown', e=>{ isDragging=true; lastMouse={x:e.clientX,y:e.clientY}; });
+  window.addEventListener('mouseup', ()=>isDragging=false);
+  window.addEventListener('mousemove', e=>{
+    if(!isDragging) return;
+    const dx = e.clientX - lastMouse.x;
+    const dy = e.clientY - lastMouse.y;
+    camAngleH -= dx * 0.005;
+    camAngleV = Math.max(0.15, Math.min(1.2, camAngleV + dy * 0.004));
+    lastMouse = {x:e.clientX,y:e.clientY};
+  });
+
+  canvas.addEventListener('touchstart', e=>{
+    if(e.touches.length===1){
+      // check if not on a UI element
+      const t=e.touches[0];
+      const el=document.elementFromPoint(t.clientX,t.clientY);
+      if(el && (el.closest('#controls')||el.closest('#chat-panel')||el.closest('#chat-toggle'))) return;
+      lastTouch={x:t.clientX,y:t.clientY};
+    }
+  },{passive:true});
+  canvas.addEventListener('touchmove', e=>{
+    if(e.touches.length===1 && lastTouch){
+      const t=e.touches[0];
+      const dx=t.clientX-lastTouch.x;
+      const dy=t.clientY-lastTouch.y;
+      camAngleH -= dx*0.005;
+      camAngleV = Math.max(0.15,Math.min(1.2,camAngleV+dy*0.004));
+      lastTouch={x:t.clientX,y:t.clientY};
+    }
+  },{passive:true});
+  canvas.addEventListener('touchend',()=>lastTouch=null,{passive:true});
+
+  // ── Labels ──────────────────────────────────────────────────────────────
+  const labelsDiv = document.getElementById('labels');
+  const labelObjects = [
+    {obj: player, text: playerName},
+    {obj: alien, text: 'Zyx 👽'},
+    {obj: monkey, text: 'Bubbles 🐵'},
+  ];
+  const labelEls = labelObjects.map(lo=>{
+    const el=document.createElement('div');
+    el.className='label3d';
+    el.textContent=lo.text;
+    labelsDiv.appendChild(el);
+    return el;
+  });
+
+  function updateLabels(){
+    const w=window.innerWidth, h=window.innerHeight;
+    labelObjects.forEach((lo,i)=>{
+      const pos = lo.obj.position.clone();
+      pos.y += 0.6;
+      pos.project(camera);
+      if(pos.z > 1){ labelEls[i].style.display='none'; return; }
+      labelEls[i].style.display='block';
+      labelEls[i].style.left=((pos.x+1)/2*w)+'px';
+      labelEls[i].style.top=((1-pos.y)/2*h)+'px';
+    });
+  }
+
+  // ── Chat ─────────────────────────────────────────────────────────────────
+  const chatToggle = document.getElementById('chat-toggle');
+  const chatPanel = document.getElementById('chat-panel');
+  const chatMsgs = document.getElementById('chat-msgs');
+  const chatInput = document.getElementById('chat-input');
+  const chatSend = document.getElementById('chat-send');
+  const chatBadge = document.getElementById('chat-badge');
+  let chatOpen = false;
+  const chatHistory = [];
+
+  chatToggle.addEventListener('click',()=>{
+    chatOpen=!chatOpen;
+    chatPanel.classList.toggle('open',chatOpen);
+    chatBadge.style.display='none';
+    if(chatOpen) setTimeout(()=>chatInput.focus(),100);
+  });
+
+  function addMsg(text, from){
+    const el=document.createElement('div');
+    el.className='msg '+from;
+    el.textContent=text;
+    chatMsgs.appendChild(el);
+    chatMsgs.scrollTop=chatMsgs.scrollHeight;
+    return el;
+  }
+
+  const SYSTEM_PROMPT = `You are Zyx, a friendly alien who lives on a tiny planet called Kai-9. 
+You speak in a slightly eccentric, curious, and warm way. You know about the planet's inhabitants: 
+${playerName} (the player/traveler), Bubbles the monkey, and yourself. 
+The planet is so small it takes just 60 steps to walk around. Keep replies short and fun (1-3 sentences).
+Occasionally reference things you see on the planet — the trees, the stars, the small size of your world.`;
+
+  async function sendChat(userMsg){
+    if(!userMsg.trim()) return;
+    chatHistory.push({role:'user', content:userMsg});
+    addMsg(userMsg,'player');
+    chatInput.value='';
+
+    const loadEl=addMsg('...','alien loading');
+    loadEl.classList.add('loading');
+
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          model:'claude-sonnet-4-20250514',
+          max_tokens:200,
+          system: SYSTEM_PROMPT,
+          messages: chatHistory
+        })
+      });
+      const data = await resp.json();
+      const reply = data.content?.[0]?.text || '...zyx static...';
+      chatHistory.push({role:'assistant', content:reply});
+      loadEl.remove();
+      addMsg(reply,'alien');
+      if(!chatOpen){
+        chatBadge.style.display='block';
+        // Bounce alien
+        bounceAlien();
+      }
+    } catch(e){
+      loadEl.remove();
+      addMsg('*static* Sorry, solar flare interference!','alien');
+    }
+  }
+
+  chatSend.addEventListener('click',()=>sendChat(chatInput.value));
+  chatInput.addEventListener('keydown',e=>{ if(e.key==='Enter') sendChat(chatInput.value); });
+
+  // Greet
+  setTimeout(()=>{
+    addMsg(`Welcome to Kai-9, ${playerName}! I'm Zyx. Try walking around — it only takes 60 steps! 🪐`,'alien');
+    if(!chatOpen) chatBadge.style.display='block';
+  }, 2000);
+
+  // ── Alien float animation ───────────────────────────────────────────────
+  let alienBounce = 0;
+  let alienBounceTime = 0;
+  function bounceAlien(){
+    alienBounceTime = 1.0;
+  }
+
+  // ── Monkey wander ──────────────────────────────────────────────────────
+  let monkeyWander = 0;
+  let monkeyLat = -20, monkeyLon = 180;
+  let monkeyTargetLon = 200;
+
+  // ── Animate ─────────────────────────────────────────────────────────────
+  const clock = new THREE.Clock();
+  const camOffset = new THREE.Vector3();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = clock.getDelta();
+
+    // Movement cooldown
+    if(moveCD > 0) moveCD -= dt;
+    movePlayer();
+
+    // Planet slow spin
+    planet.rotation.y += 0.0005;
+    ring.rotation.y += 0.0005;
+
+    // Alien hover
+    if(alienBounceTime > 0){ alienBounceTime -= dt; }
+    const alienHover = Math.sin(Date.now()*0.002)*0.05 + (alienBounceTime>0?Math.sin(alienBounceTime*8)*0.15:0);
+    onSurface(alien, 5, 0, alienHover);
+    alien.rotation.y = Math.sin(Date.now()*0.0008)*0.4;
+
+    // Monkey wander
+    monkeyWander += dt;
+    if(monkeyWander > 3){
+      monkeyWander=0;
+      monkeyTargetLon += (Math.random()-0.5)*20;
+    }
+    monkeyLon += (monkeyTargetLon-monkeyLon)*0.01;
+    onSurface(monkey, -20+Math.sin(Date.now()*0.001)*5, monkeyLon, 0);
+    monkey.rotation.y += 0.02;
+
+    // Tree sway
+    trees.forEach((t,i)=>{
+      t.rotation.z = Math.sin(Date.now()*0.001+i)*0.04;
+    });
+
+    // Camera orbit around player
+    const pPos = player.position.clone();
+    const pNorm = pPos.normalize();
+    const up = pNorm.clone();
+    const forward = new THREE.Vector3(0,1,0).cross(up).normalize();
+    if(forward.lengthSq()<0.01) forward.set(1,0,0);
+
+    const camDist = 4.5;
+    const camH = 2.2;
+    // Orbit around player
+    const angle = camAngleH;
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const right = forward.clone().cross(up).normalize();
+
+    camOffset.copy(up).multiplyScalar(camH)
+      .addScaledVector(forward, -cosA*camDist)
+      .addScaledVector(right, sinA*camDist);
+
+    // Vertical tilt
+    const vFactor = camAngleV;
+    camera.position.copy(pPos).add(camOffset);
+    // Look a bit above the player
+    const lookAt = pPos.clone().addScaledVector(up, 0.3);
+    camera.lookAt(lookAt);
+
+    updateLabels();
+    renderer.render(scene, camera);
+  }
+  animate();
+}
+</script>
+</body>
+</html>
